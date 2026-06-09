@@ -6,3 +6,10 @@ outputs/
 *.pth
 .env
 s_venv/
+CLAUDE.md
+
+data/
+
+models/
+
+*.png
