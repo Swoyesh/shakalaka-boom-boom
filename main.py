@@ -64,6 +64,158 @@ def draw_thumb(frame, original_frame, hand_landmarks, w, h):
     frame[mask == 255] = original_frame[mask == 255]
 
 
+def overlay_image(base, img, x, y, new_w, new_h):
+    img_resized = cv2.resize(img, (new_w, new_h))
+    if img_resized.shape[2] == 4:
+        alpha = img_resized[:, :, 3:4] / 255.0
+        rgb = img_resized[:, :, :3]
+    else:
+        gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
+        alpha = mask[:, :, np.newaxis] / 255.0
+        rgb = img_resized[:, :, :3]
+    x2, y2 = x + new_w, y + new_h
+    x, y = max(x, 0), max(y, 0)
+    roi = base[y:y2, x:x2]
+    if roi.shape[:2] != rgb.shape[:2]:
+        return
+    base[y:y2, x:x2] = (alpha * rgb + (1 - alpha) * roi).astype(np.uint8)
+
+
+def draw_title_screen(frame, w, h):
+    bg = cv2.resize(bg_img, (w, h))
+    cv2.addWeighted(bg, 0.75, frame, 0.25, 0, frame)
+    frame[:] = cv2.addWeighted(bg, 0.75, frame, 0.25, 0, None)
+
+    logo_w, logo_h = 420, 160
+    overlay_image(frame, logo_img, w // 2 - logo_w // 2, 30, logo_w, logo_h)
+
+    text = "Which hand is your magic hand?"
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, 1.1, 2)
+    cv2.putText(
+        frame,
+        text,
+        (w // 2 - tw // 2, h // 2 - 20),
+        cv2.FONT_HERSHEY_DUPLEX,
+        1.1,
+        (30, 30, 30),
+        4,
+    )
+    cv2.putText(
+        frame,
+        text,
+        (w // 2 - tw // 2, h // 2 - 20),
+        cv2.FONT_HERSHEY_DUPLEX,
+        1.1,
+        (255, 255, 255),
+        2,
+    )
+
+    hand_w, hand_h = 180, 220
+
+    # Right hand button
+    rx = w // 2 - 320
+    ry = h // 2 + 10
+    cv2.rectangle(
+        frame,
+        (rx - 10, ry - 10),
+        (rx + hand_w + 10, ry + hand_h + 10),
+        (40, 40, 160),
+        -1,
+    )
+    cv2.rectangle(
+        frame,
+        (rx - 10, ry - 10),
+        (rx + hand_w + 10, ry + hand_h + 10),
+        (255, 255, 255),
+        2,
+    )
+    overlay_image(frame, left_hand_img, rx, ry, hand_w, hand_h)
+    cv2.putText(
+        frame,
+        "L",
+        (rx + hand_w - 28, ry + hand_h - 8),
+        cv2.FONT_HERSHEY_DUPLEX,
+        1.0,
+        (30, 30, 30),
+        4,
+    )
+    cv2.putText(
+        frame,
+        "L",
+        (rx + hand_w - 28, ry + hand_h - 8),
+        cv2.FONT_HERSHEY_DUPLEX,
+        1.0,
+        (255, 220, 80),
+        2,
+    )
+
+    lx = w // 2 + 130
+    ly = h // 2 + 10
+    cv2.rectangle(
+        frame,
+        (lx - 10, ly - 10),
+        (lx + hand_w + 10, ly + hand_h + 10),
+        (160, 60, 0),
+        -1,
+    )
+    cv2.rectangle(
+        frame,
+        (lx - 10, ly - 10),
+        (lx + hand_w + 10, ly + hand_h + 10),
+        (255, 255, 255),
+        2,
+    )
+    overlay_image(frame, right_hand_img, lx, ly, hand_w, hand_h)
+    cv2.putText(
+        frame,
+        "R",
+        (lx + hand_w - 28, ly + hand_h - 8),
+        cv2.FONT_HERSHEY_DUPLEX,
+        1.0,
+        (30, 30, 30),
+        4,
+    )
+    cv2.putText(
+        frame,
+        "R",
+        (lx + hand_w - 28, ly + hand_h - 8),
+        cv2.FONT_HERSHEY_DUPLEX,
+        1.0,
+        (255, 220, 80),
+        2,
+    )
+
+    cv2.imshow("Shakalaka", frame)
+
+
+def draw_hud(combined, w, h, eraser_mode, categories):
+    color = (0, 0, 220) if eraser_mode else (0, 215, 255)
+    cv2.rectangle(combined, (0, 0), (w - 1, h - 1), color, 6)
+
+    mode_text = "ERASE" if eraser_mode else "DRAW"
+    badge_color = (0, 0, 180) if eraser_mode else (0, 150, 200)
+    cv2.rectangle(combined, (10, 10), (130, 50), badge_color, -1)
+    cv2.putText(
+        combined, mode_text, (20, 40), cv2.FONT_HERSHEY_DUPLEX, 0.9, (255, 255, 255), 2
+    )
+
+    panel_x = w - 155
+    cv2.rectangle(
+        combined, (panel_x - 5, 5), (w - 5, len(categories) * 22 + 15), (20, 20, 40), -1
+    )
+    for idx, cat in enumerate(categories):
+        cv2.putText(
+            combined,
+            cat,
+            (panel_x, 22 + idx * 22),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (180, 180, 180),
+            1,
+        )
+
+
 HAND_CONNECTIONS = [
     (0, 1),
     (1, 2),
@@ -118,10 +270,16 @@ scratch_model.eval()
 
 pencil_img = cv2.imread("assets/shakalaka_pencil.png", cv2.IMREAD_UNCHANGED)
 eraser_img = cv2.imread("assets/eraser.png", cv2.IMREAD_UNCHANGED)
+bg_img = cv2.imread("assets/background.jpg")
+logo_img = cv2.imread("assets/logo_shakalaka.png", cv2.IMREAD_UNCHANGED)
+left_hand_img = cv2.imread("assets/left_hand.png", cv2.IMREAD_UNCHANGED)
+right_hand_img = cv2.imread("assets/right_hand.png", cv2.IMREAD_UNCHANGED)
 
 cap = cv2.VideoCapture(0)
+cv2.namedWindow("Shakalaka", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("Shakalaka", 1600, 900)
 
-# Hand selection screen
+app_state = "TITLE"
 target_hand = None
 thumbs_up_hand = None
 ret, frame = cap.read()
@@ -129,35 +287,6 @@ h, w, d = frame.shape
 
 top3_labels = []
 waiting_for_confirm = False
-
-while target_hand is None:
-    ret, frame = cap.read()
-    cv2.putText(
-        frame,
-        "Which hand will you draw with?",
-        (30, h // 2 - 40),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.9,
-        (255, 255, 255),
-        2,
-    )
-    cv2.putText(
-        frame,
-        "Press R for Right hand  |  L for Left hand",
-        (30, h // 2 + 10),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        (0, 255, 255),
-        2,
-    )
-    cv2.imshow("Shakalaka", frame)
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord("r"):
-        target_hand = "Left"  # MediaPipe mirrors: user's Right = "Left"
-        thumbs_up_hand = "Right"  # non-drawing hand
-    elif key == ord("l"):
-        target_hand = "Right"  # MediaPipe mirrors: user's Left = "Right"
-        thumbs_up_hand = "Left"  # non-drawing hand
 
 pygame.mixer.init()
 predicted_label = ""
@@ -174,6 +303,19 @@ with HandLandmarker.create_from_options(options) as landmarker:
         ret, frame = cap.read()
         if not ret:
             break
+
+        if app_state == "TITLE":
+            draw_title_screen(frame, w, h)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("r"):
+                target_hand = "Left"
+                thumbs_up_hand = "Right"
+                app_state = "DRAWING"
+            elif key == ord("l"):
+                target_hand = "Right"
+                thumbs_up_hand = "Left"
+                app_state = "DRAWING"
+            continue
 
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         timestamp_ms = int(time.time() * 1000)
@@ -245,9 +387,21 @@ with HandLandmarker.create_from_options(options) as landmarker:
                     if eraser_mode:
                         ex = int((hand_landmarks[8].x - 0.01) * w)
                         ey = int((hand_landmarks[8].y + 0.04) * h)
-                        draw_pencil(frame, (ex, ey), eraser_img, locked_angle, size=50)
+                        draw_pencil(
+                            frame,
+                            (ex, ey),
+                            eraser_img,
+                            locked_angle,
+                            size=int(w * 0.12),
+                        )
                     else:
-                        draw_pencil(frame, (px, py), pencil_img, locked_angle, size=150)
+                        draw_pencil(
+                            frame,
+                            (px, py),
+                            pencil_img,
+                            locked_angle,
+                            size=int(w * 0.28),
+                        )
                     draw_thumb(frame, original_frame, hand_landmarks, w, h)
                     raw_point = (
                         int(hand_landmarks[8].x * w),
@@ -296,6 +450,7 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 drawing_sound_playing = False
 
         combined = cv2.add(frame, canvas)
+        draw_hud(combined, w, h, eraser_mode, categories)
 
         if predicted_label:
             for j, part in enumerate(predicted_label.split(" | ")):

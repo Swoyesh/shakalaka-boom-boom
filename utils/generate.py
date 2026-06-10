@@ -1,24 +1,5 @@
 import cv2
 
-# import numpy as np
-# def generate_image(canvas, label):
-#     inverted_image = cv2.bitwise_not(canvas)
-#     pil_image = Image.fromarray(cv2.cvtColor(inverted_image, cv2.COLOR_BGR2RGB))
-#     pil_image = pil_image.resize((512, 512))
-#     pil_image.save("temp_control.png")
-#     client = Client(
-#         "DamarJati/FLUX.1-DEV-Canny", token="REMOVED"
-#     )
-#     result = client.predict(
-#         label, "temp_control.png", 28, 5, 512, 512, 42, False, api_name="/generate_image"
-#     )
-#     img = Image.open(result[1])
-#     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-# if __name__ == "__main__":
-#     canvas = cv2.imread("debug_preprocessed.png")
-#     result = generate_image(canvas, "smiley face")
-#     cv2.imshow("Generated Image", result)
-#     cv2.waitKey(0)
 # import io
 # import cv2
 # import numpy as np
