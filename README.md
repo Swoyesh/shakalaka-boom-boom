@@ -20,9 +20,10 @@ Inspired by the Indian children's show *Shakalaka Boom Boom*, this project lets 
 
 - Real-time hand tracking via **MediaPipe** (21 landmarks)
 - Pencil and eraser modes with sound feedback
-- Sketch recognition using **EfficientNet-B0** fine-tuned on Google QuickDraw data
+- Sketch recognition currently evaluated with **EfficientNet-B0** and a custom **QuickDNN** (from scratch) — best model wins once testing is complete
+- Training data: **Google QuickDraw** (temporary baseline) being replaced by manually collected in-app drawings — data collection is ongoing
 - 15 drawable categories: apple, cat, crown, donut, fish, flower, house, moon, pizza, smiley face, snowman, star, sun, tree, umbrella
-- AI image generation from confirmed sketches
+- AI image generation from confirmed sketches via **ControlNet Scribble**
 - Colorful kid-friendly UI with the Shakalaka theme
 
 ---
@@ -33,9 +34,9 @@ Inspired by the Indian children's show *Shakalaka Boom Boom*, this project lets 
 |---|---|
 | Hand detection | MediaPipe Hands |
 | Video & canvas | OpenCV |
-| Sketch recognition | EfficientNet-B0 (PyTorch) |
-| Training data | Google QuickDraw dataset |
-| Image generation | pollinations.ai REST API |
+| Sketch recognition | EfficientNet-B0 vs. custom QuickDNN — testing phase |
+| Training data | Google QuickDraw (temporary, replacing with in-app collected data) |
+| Image generation | ControlNet Scribble model |
 | Sound | pygame |
 
 ---
