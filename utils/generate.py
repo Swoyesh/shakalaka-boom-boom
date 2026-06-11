@@ -30,7 +30,7 @@ def generate_image(canvas, label):
     pil_image = Image.fromarray(cv2.cvtColor(inverted_canvas, cv2.COLOR_BGR2RGB))
     temp_path = "temp_control.png"
     pil_image.save(temp_path)
-    client = Client("https://b4cf7e9b47eda78d79.gradio.live")
+    client = Client("https://6f33284773dd143f54.gradio.live")
     result = client.predict(handle_file(temp_path), label, api_name="/predict")
     img = cv2.imread(result)
     return img

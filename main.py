@@ -1,5 +1,6 @@
 import math
 import os
+import threading
 import time
 from collections import deque
 
@@ -11,7 +12,6 @@ import torch
 
 from train import QuickDNN, build_model
 from utils.canvas import drawline
-
 # from utils.generate import generate_image
 from utils.gesture import is_pencil_grip, is_thumbs_up
 from utils.overlay import draw_pencil
@@ -189,6 +189,273 @@ def draw_title_screen(frame, w, h):
     cv2.imshow("Shakalaka", frame)
 
 
+def draw_prediction_screen(
+    combined,
+    w,
+    h,
+    top3_labels,
+    top3_probs,
+    flash_start,
+    typing_mode=False,
+    typed_text="",
+):
+    dark = np.zeros_like(combined)
+    cv2.addWeighted(dark, 0.5, combined, 0.5, 0, combined)
+
+    elapsed = time.time() - flash_start
+    if elapsed < 0.15:
+        alpha = 1.0 - (elapsed / 0.15)
+        combined[:] = np.clip(
+            combined * (1 - alpha * 0.75) + 255 * (alpha * 0.75), 0, 255
+        ).astype(np.uint8)
+
+    s = w / 1280.0
+    t2 = max(1, int(round(2 * s)))
+    t1 = max(1, int(round(1 * s)))
+
+    header = "WHAT DID YOU DRAW?"
+    hs = 1.5 * s
+    (tw, _), _ = cv2.getTextSize(header, cv2.FONT_HERSHEY_DUPLEX, hs, t2 + 1)
+    tx = w // 2 - tw // 2
+    hy = int(90 * s)
+    cv2.putText(
+        combined, header, (tx, hy), cv2.FONT_HERSHEY_DUPLEX, hs, (20, 20, 20), t2 * 3
+    )
+    cv2.putText(
+        combined, header, (tx, hy), cv2.FONT_HERSHEY_DUPLEX, hs, (255, 220, 60), t2
+    )
+
+    card_w, card_h = int(300 * s), int(200 * s)
+    gap = int(50 * s)
+    total = card_w * 3 + gap * 2
+    cx_start = w // 2 - total // 2
+    cy = h // 2 - card_h // 2 + int(40 * s)
+
+    card_colors = [(50, 40, 160), (30, 110, 50), (160, 70, 20)]
+    keys = ["1", "2", "3"]
+
+    for i in range(min(3, len(top3_labels))):
+        x = cx_start + i * (card_w + gap)
+
+        cv2.rectangle(combined, (x, cy), (x + card_w, cy + card_h), (25, 25, 35), -1)
+        cv2.rectangle(
+            combined, (x, cy), (x + card_w, cy + max(2, int(5 * s))), card_colors[i], -1
+        )
+        cv2.rectangle(combined, (x, cy), (x + card_w, cy + card_h), (100, 100, 120), 1)
+
+        r = int(22 * s)
+        ccx, ccy = x + int(30 * s), cy + int(35 * s)
+        cv2.circle(combined, (ccx, ccy), r, card_colors[i], -1)
+        cv2.circle(combined, (ccx, ccy), r, (200, 200, 200), 1)
+        (kw, kh), _ = cv2.getTextSize(keys[i], cv2.FONT_HERSHEY_DUPLEX, 1.0 * s, t2)
+        cv2.putText(
+            combined,
+            keys[i],
+            (ccx - kw // 2, ccy + kh // 2),
+            cv2.FONT_HERSHEY_DUPLEX,
+            1.0 * s,
+            (255, 255, 255),
+            t2,
+        )
+
+        label = top3_labels[i]
+        (lw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX, 1.05 * s, t2)
+        cv2.putText(
+            combined,
+            label,
+            (x + card_w // 2 - lw // 2, cy + int(115 * s)),
+            cv2.FONT_HERSHEY_DUPLEX,
+            1.05 * s,
+            (240, 240, 240),
+            t2,
+        )
+
+        prob = top3_probs[i]
+        bar_x, bar_y = x + int(20 * s), cy + int(145 * s)
+        bar_max = card_w - int(40 * s)
+        bar_h = max(5, int(14 * s))
+        cv2.rectangle(
+            combined, (bar_x, bar_y), (bar_x + bar_max, bar_y + bar_h), (50, 50, 60), -1
+        )
+        cv2.rectangle(
+            combined,
+            (bar_x, bar_y),
+            (bar_x + int(bar_max * prob), bar_y + bar_h),
+            card_colors[i],
+            -1,
+        )
+
+        pct = f"{prob * 100:.0f}%"
+        (pw, _), _ = cv2.getTextSize(pct, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, t1)
+        cv2.putText(
+            combined,
+            pct,
+            (x + card_w // 2 - pw // 2, cy + int(178 * s)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6 * s,
+            (180, 180, 180),
+            t1,
+        )
+
+    if typing_mode:
+        box_w, box_h = int(500 * s), int(60 * s)
+        bx = w // 2 - box_w // 2
+        by = cy + card_h + int(30 * s)
+        cv2.rectangle(combined, (bx, by), (bx + box_w, by + box_h), (25, 25, 35), -1)
+        cv2.rectangle(combined, (bx, by), (bx + box_w, by + box_h), (255, 220, 60), t1)
+        cursor = "_" if int(time.time() * 2) % 2 == 0 else " "
+        cv2.putText(
+            combined,
+            typed_text + cursor,
+            (bx + int(15 * s), by + int(42 * s)),
+            cv2.FONT_HERSHEY_DUPLEX,
+            0.9 * s,
+            (255, 255, 255),
+            t2,
+        )
+        inst = "Type the category   |   ENTER = save   |   ESC = cancel"
+    else:
+        inst = (
+            "1 / 2 / 3 to pick   |   4 = type it   |   ESC = top pick   |   C = redraw"
+        )
+
+    (iw, _), _ = cv2.getTextSize(inst, cv2.FONT_HERSHEY_SIMPLEX, 0.65 * s, t1)
+    cv2.putText(
+        combined,
+        inst,
+        (w // 2 - iw // 2, h - int(28 * s)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65 * s,
+        (20, 20, 20),
+        t1 * 4,
+    )
+    cv2.putText(
+        combined,
+        inst,
+        (w // 2 - iw // 2, h - int(28 * s)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65 * s,
+        (190, 190, 190),
+        t1,
+    )
+
+
+def run_generation(canvas_img, label, result):
+    try:
+        result["img"] = generate_image(canvas_img, label)
+    except Exception as e:
+        print(f"Generation failed: {e}")
+    result["done"] = True
+
+
+def draw_generating_screen(combined, w, h, label, start_time, thumb):
+    dark = np.zeros_like(combined)
+    cv2.addWeighted(dark, 0.65, combined, 0.35, 0, combined)
+
+    s = w / 1280.0
+    t2 = max(1, int(round(2 * s)))
+
+    dots = "." * (int((time.time() - start_time) * 2) % 4)
+    text = f"Creating your {label}{dots}"
+    base = f"Creating your {label}..."
+    (tw, _), _ = cv2.getTextSize(base, cv2.FONT_HERSHEY_DUPLEX, 1.3 * s, t2)
+    tx = w // 2 - tw // 2
+    ty = int(h * 0.3)
+    cv2.putText(
+        combined, text, (tx, ty), cv2.FONT_HERSHEY_DUPLEX, 1.3 * s, (20, 20, 20), t2 * 3
+    )
+    cv2.putText(
+        combined, text, (tx, ty), cv2.FONT_HERSHEY_DUPLEX, 1.3 * s, (255, 220, 60), t2
+    )
+
+    if thumb is not None:
+        th_h = int(h * 0.4)
+        th_w = int(th_h * w / h)
+        small = cv2.resize(thumb, (th_w, th_h))
+        x0 = w // 2 - th_w // 2
+        y0 = int(h * 0.38)
+        cv2.rectangle(
+            combined,
+            (x0 - 3, y0 - 3),
+            (x0 + th_w + 3, y0 + th_h + 3),
+            (255, 220, 60),
+            2,
+        )
+        combined[y0 : y0 + th_h, x0 : x0 + th_w] = small
+
+    angle = int((time.time() - start_time) * 360) % 360
+    cx, cy = w // 2, int(h * 0.88)
+    r = int(18 * s)
+    cv2.ellipse(
+        combined, (cx, cy), (r, r), 0, angle, angle + 270, (255, 220, 60), t2 + 1
+    )
+
+
+def draw_result_screen(combined, w, h, result_img, label):
+    dark = np.zeros_like(combined)
+    cv2.addWeighted(dark, 0.65, combined, 0.35, 0, combined)
+
+    s = w / 1280.0
+    t2 = max(1, int(round(2 * s)))
+    t1 = max(1, int(round(1 * s)))
+
+    header = "SHAKALAKA!"
+    (tw, _), _ = cv2.getTextSize(header, cv2.FONT_HERSHEY_DUPLEX, 1.6 * s, t2)
+    tx = w // 2 - tw // 2
+    hy = int(70 * s)
+    cv2.putText(
+        combined,
+        header,
+        (tx, hy),
+        cv2.FONT_HERSHEY_DUPLEX,
+        1.6 * s,
+        (20, 20, 20),
+        t2 * 3,
+    )
+    cv2.putText(
+        combined, header, (tx, hy), cv2.FONT_HERSHEY_DUPLEX, 1.6 * s, (60, 220, 255), t2
+    )
+
+    if result_img is not None:
+        img_h = int(h * 0.6)
+        img_w = int(img_h * result_img.shape[1] / result_img.shape[0])
+        if img_w > int(w * 0.8):
+            img_w = int(w * 0.8)
+            img_h = int(img_w * result_img.shape[0] / result_img.shape[1])
+        resized = cv2.resize(result_img, (img_w, img_h))
+        x0 = w // 2 - img_w // 2
+        y0 = h // 2 - img_h // 2 + int(20 * s)
+        cv2.rectangle(
+            combined,
+            (x0 - 4, y0 - 4),
+            (x0 + img_w + 4, y0 + img_h + 4),
+            (255, 220, 60),
+            max(2, int(4 * s)),
+        )
+        combined[y0 : y0 + img_h, x0 : x0 + img_w] = resized
+
+    inst = f"Your {label}!   |   C = draw again"
+    (iw, _), _ = cv2.getTextSize(inst, cv2.FONT_HERSHEY_SIMPLEX, 0.7 * s, t1)
+    cv2.putText(
+        combined,
+        inst,
+        (w // 2 - iw // 2, h - int(25 * s)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7 * s,
+        (20, 20, 20),
+        t1 * 4,
+    )
+    cv2.putText(
+        combined,
+        inst,
+        (w // 2 - iw // 2, h - int(25 * s)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7 * s,
+        (230, 230, 230),
+        t1,
+    )
+
+
 def draw_hud(combined, w, h, eraser_mode, categories):
     color = (0, 0, 220) if eraser_mode else (0, 215, 255)
     cv2.rectangle(combined, (0, 0), (w - 1, h - 1), color, 6)
@@ -253,20 +520,25 @@ options = HandLandmarkerOptions(
     min_tracking_confidence=0.5,
 )
 
+t0 = time.time()
+
 with open("models/categories_15.txt") as f:
     categories = f.read().splitlines()
+print(f"[LOAD] categories: {time.time() - t0:.2f}s")
 
 pretrained_model = build_model(num_classes=len(categories))
 pretrained_model.load_state_dict(
     torch.load("models/quickDraw_efficientnet_15cat_aug.pth", map_location="cpu")
 )
 pretrained_model.eval()
+print(f"[LOAD] pretrained_model: {time.time() - t0:.2f}s")
 
 scratch_model = QuickDNN(num_classes=len(categories))
 scratch_model.load_state_dict(
     torch.load("models/quickDraw_model_15cat.pth", map_location="cpu")
 )
 scratch_model.eval()
+print(f"[LOAD] scratch_model: {time.time() - t0:.2f}s")
 
 pencil_img = cv2.imread("assets/shakalaka_pencil.png", cv2.IMREAD_UNCHANGED)
 eraser_img = cv2.imread("assets/eraser.png", cv2.IMREAD_UNCHANGED)
@@ -274,21 +546,32 @@ bg_img = cv2.imread("assets/background.jpg")
 logo_img = cv2.imread("assets/logo_shakalaka.png", cv2.IMREAD_UNCHANGED)
 left_hand_img = cv2.imread("assets/left_hand.png", cv2.IMREAD_UNCHANGED)
 right_hand_img = cv2.imread("assets/right_hand.png", cv2.IMREAD_UNCHANGED)
+print(f"[LOAD] assets: {time.time() - t0:.2f}s")
 
 cap = cv2.VideoCapture(0)
+print(f"[LOAD] camera: {time.time() - t0:.2f}s")
 cv2.namedWindow("Shakalaka", cv2.WINDOW_NORMAL)
-cv2.resizeWindow("Shakalaka", 1600, 900)
 
 app_state = "TITLE"
 target_hand = None
 thumbs_up_hand = None
 ret, frame = cap.read()
 h, w, d = frame.shape
+cv2.resizeWindow("Shakalaka", 1600, int(1600 * h / w))
+print(f"[LOAD] first frame: {time.time() - t0:.2f}s")
 
 top3_labels = []
-waiting_for_confirm = False
+top3_probs_list = []
+flash_start_time = 0.0
+selected_label = ""
+typing_mode = False
+typed_text = ""
+gen_state = {"img": None, "done": False}
+gen_start_time = 0.0
+gen_thumb = None
 
 pygame.mixer.init()
+print(f"[LOAD] pygame: {time.time() - t0:.2f}s")
 predicted_label = ""
 canvas = np.zeros((h, w, 3), dtype=np.uint8)
 prev_point = None
@@ -298,6 +581,8 @@ locked_angle = None
 prediction_done = False
 drawing_sound_playing = False
 
+print(f"[LOAD] HandLandmarker init: {time.time() - t0:.2f}s")
+print("[LOAD] entering main loop")
 with HandLandmarker.create_from_options(options) as landmarker:
     while cap.isOpened():
         ret, frame = cap.read()
@@ -344,7 +629,11 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 if handedness_label == thumbs_up_hand:
                     thumbs_up_curr = is_thumbs_up(hand_landmarks)
                     print(f"thumbs_up: {thumbs_up_curr}")
-                    if thumbs_up_curr and not prediction_done:
+                    if (
+                        thumbs_up_curr
+                        and not prediction_done
+                        and app_state == "DRAWING"
+                    ):
                         preprocessed = preprocess_canvas(canvas.copy())
                         if preprocessed is not None:
                             cv2.imwrite(
@@ -359,22 +648,28 @@ with HandLandmarker.create_from_options(options) as landmarker:
                                 probs = torch.softmax(output, dim=1)[0]
                                 top3 = torch.topk(probs, 3)
                                 top3_labels = [categories[idx] for idx in top3.indices]
+                                top3_probs_list = [
+                                    probs[i].item() for i in top3.indices
+                                ]
                                 predicted_label = " | ".join(
                                     f"{categories[i]} ({probs[i] * 100:.0f}%)"
                                     for i in top3.indices
                                 )
                             print(f"Predicted: {predicted_label}")
                             prediction_done = True
-                            waiting_for_confirm = True
+                            app_state = "PREDICTING"
+                            flash_start_time = time.time()
                             cv2.imwrite("debug_canvas.png", canvas)
 
                 if handedness_label != target_hand:
                     continue
 
-                if not prediction_done and is_pencil_grip(hand_landmarks):
-                    px = int(
-                        (hand_landmarks[8].x + hand_landmarks[12].x - 0.02) / 2 * w
-                    )
+                if (
+                    app_state == "DRAWING"
+                    and not prediction_done
+                    and is_pencil_grip(hand_landmarks)
+                ):
+                    px = int((hand_landmarks[8].x + hand_landmarks[12].x) / 2 * w)
                     py = int(
                         (hand_landmarks[8].y + hand_landmarks[12].y + 0.003) / 2 * h
                     )
@@ -385,14 +680,14 @@ with HandLandmarker.create_from_options(options) as landmarker:
 
                     original_frame = frame.copy()
                     if eraser_mode:
-                        ex = int((hand_landmarks[8].x - 0.01) * w)
+                        ex = int((hand_landmarks[8].x + 0.01) * w)
                         ey = int((hand_landmarks[8].y + 0.04) * h)
                         draw_pencil(
                             frame,
                             (ex, ey),
                             eraser_img,
                             locked_angle,
-                            size=int(w * 0.12),
+                            size=int(w * 0.09),
                         )
                     else:
                         draw_pencil(
@@ -400,7 +695,7 @@ with HandLandmarker.create_from_options(options) as landmarker:
                             (px, py),
                             pencil_img,
                             locked_angle,
-                            size=int(w * 0.28),
+                            size=int(w * 0.18),
                         )
                     draw_thumb(frame, original_frame, hand_landmarks, w, h)
                     raw_point = (
@@ -450,84 +745,101 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 drawing_sound_playing = False
 
         combined = cv2.add(frame, canvas)
-        draw_hud(combined, w, h, eraser_mode, categories)
-
-        if predicted_label:
-            for j, part in enumerate(predicted_label.split(" | ")):
-                cv2.putText(
-                    combined,
-                    part,
-                    (30, 50 + j * 45),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.2,
-                    (0, 255, 0),
-                    3,
-                )
-            if waiting_for_confirm:
-                cv2.putText(
-                    combined,
-                    "Press 1/2/3 to confirm | 4 to type | ESC = top pick",
-                    (30, h - 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (0, 255, 255),
-                    2,
-                )
+        if app_state == "DRAWING":
+            draw_hud(combined, w, h, eraser_mode, categories)
+        elif app_state == "PREDICTING":
+            draw_prediction_screen(
+                combined,
+                w,
+                h,
+                top3_labels,
+                top3_probs_list,
+                flash_start_time,
+                typing_mode,
+                typed_text,
+            )
+        elif app_state == "GENERATING":
+            if gen_state["done"]:
+                if gen_state["img"] is not None:
+                    app_state = "RESULT"
+                else:
+                    app_state = "DRAWING"
+            draw_generating_screen(
+                combined, w, h, selected_label, gen_start_time, gen_thumb
+            )
+        elif app_state == "RESULT":
+            draw_result_screen(combined, w, h, gen_state["img"], selected_label)
 
         cv2.imshow("Shakalaka", combined)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
-        elif key == ord("c"):
-            canvas[:] = 0
-            predicted_label = ""
-            prediction_done = False
-        elif key == ord("e"):
-            eraser_mode = not eraser_mode
 
-        if waiting_for_confirm:
-            if key == ord("1"):
-                save_canvas(canvas, top3_labels[0])
-                # generated = generate_image(canvas, top3_labels[0])
-                # if generated is not None:
-                #     cv2.imshow("Generated", generated)
-                #     cv2.waitKey(0)
-            elif key == ord("2"):
-                save_canvas(canvas, top3_labels[1])
-                # generated = generate_image(canvas, top3_labels[1])
-                # if generated is not None:
-                #     cv2.imshow("Generated", generated)
-                #     cv2.waitKey(0)
-            elif key == ord("3"):
-                save_canvas(canvas, top3_labels[2])
-                # generated = generate_image(canvas, top3_labels[2])
-                # if generated is not None:
-                #     cv2.imshow("Generated", generated)
-                #     cv2.waitKey(0)
-            elif key == ord("4"):
-                print("Type category name: ")
-                label = input()
-                save_canvas(canvas, label)
-                # generated = generate_image(canvas, label)
-                # if generated is not None:
-                #     cv2.imshow("Generated", generated)
-                #     cv2.waitKey(0)
-            elif key == 27:  # ESC
-                save_canvas(canvas, top3_labels[0])
-                # generated = generate_image(canvas, top3_labels[0])
-                # if generated is not None:
-                #     cv2.imshow("Generated", generated)
-                #     cv2.waitKey(0)
-            else:
-                pass
-
-            if key in (ord("1"), ord("2"), ord("3"), ord("4"), 27):
+        if app_state == "DRAWING":
+            if key == ord("c"):
                 canvas[:] = 0
                 predicted_label = ""
                 prediction_done = False
-                waiting_for_confirm = False
+            elif key == ord("e"):
+                eraser_mode = not eraser_mode
+        elif app_state == "PREDICTING":
+            pick = None
+            if typing_mode:
+                if key == 13:
+                    if typed_text.strip():
+                        pick = typed_text.strip().lower()
+                elif key == 27:
+                    typing_mode = False
+                    typed_text = ""
+                elif key == 8:
+                    typed_text = typed_text[:-1]
+                elif 32 <= key <= 126:
+                    typed_text += chr(key)
+            else:
+                if key == ord("1") and top3_labels:
+                    pick = top3_labels[0]
+                elif key == ord("2") and len(top3_labels) > 1:
+                    pick = top3_labels[1]
+                elif key == ord("3") and len(top3_labels) > 2:
+                    pick = top3_labels[2]
+                elif key == ord("4"):
+                    typing_mode = True
+                    typed_text = ""
+                elif key == 27 and top3_labels:
+                    pick = top3_labels[0]
+
+            if pick is not None:
+                selected_label = pick
+                save_canvas(canvas, selected_label)
+                gen_thumb = canvas.copy()
+                gen_state = {"img": None, "done": False}
+                threading.Thread(
+                    target=run_generation,
+                    args=(canvas.copy(), selected_label, gen_state),
+                    daemon=True,
+                ).start()
+                gen_start_time = time.time()
+                canvas[:] = 0
+                predicted_label = ""
+                prediction_done = False
                 top3_labels = []
+                top3_probs_list = []
+                typing_mode = False
+                typed_text = ""
+                app_state = "GENERATING"
+            elif not typing_mode and key == ord("c"):
+                canvas[:] = 0
+                predicted_label = ""
+                prediction_done = False
+                top3_labels = []
+                top3_probs_list = []
+                app_state = "DRAWING"
+        elif app_state == "RESULT":
+            if key == ord("c"):
+                gen_state = {"img": None, "done": False}
+                gen_thumb = None
+                app_state = "DRAWING"
 
 cap.release()
 cv2.destroyAllWindows()
